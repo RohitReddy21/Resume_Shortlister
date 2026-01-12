@@ -10,7 +10,7 @@ start "Resume Shortlister Backend" cmd /k "cd backend && npm start"
 timeout /t 3 /nobreak > nul
 
 echo Starting Frontend...
-start "Resume Shortlister Frontend" cmd /k "npm run dev"
+start "Resume Shortlister Frontend" cmd /k "cd frontend && npm run dev"
 
 echo.
 echo ========================================

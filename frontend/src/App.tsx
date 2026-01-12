@@ -1,14 +1,33 @@
-import { useState } from 'react';
+import { useState, ChangeEvent, DragEvent, KeyboardEvent } from 'react';
 import './App.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const BACKEND_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
 
+interface Resume {
+  id: string | number;
+  fileName: string;
+  name: string;
+  email: string;
+  contact: string;
+  place: string;
+  skills: string;
+  experience: string;
+  currentCTC: string;
+  expectedPay: string;
+  availabilityToJoin: string;
+}
+
+interface Alert {
+  message: string;
+  type: 'success' | 'error' | 'info';
+}
+
 function App() {
-  const [activeTab, setActiveTab] = useState('upload'); // 'upload' or 'folder'
-  const [resumes, setResumes] = useState([]);
+  const [activeTab, setActiveTab] = useState<'upload' | 'folder'>('upload');
+  const [resumes, setResumes] = useState<Resume[]>([]);
   const [loading, setLoading] = useState(false);
-  const [alert, setAlert] = useState(null);
+  const [alert, setAlert] = useState<Alert | null>(null);
   const [folderPath, setFolderPath] = useState('');
   const [companyContact, setCompanyContact] = useState({
     email: '',
@@ -16,13 +35,13 @@ function App() {
   });
 
   // Show alert message
-  const showAlert = (message, type = 'info') => {
+  const showAlert = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setAlert({ message, type });
     setTimeout(() => setAlert(null), 5000);
   };
 
   // Handle file upload
-  const handleFileUpload = async (files) => {
+  const handleFileUpload = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
 
     setLoading(true);
@@ -47,7 +66,8 @@ function App() {
         showAlert(data.error || 'Failed to upload resumes', 'error');
       }
     } catch (error) {
-      showAlert('Error uploading resumes: ' + error.message, 'error');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      showAlert('Error uploading resumes: ' + errorMessage, 'error');
     } finally {
       setLoading(false);
     }
@@ -77,24 +97,25 @@ function App() {
         showAlert(data.error || 'Failed to scan folder', 'error');
       }
     } catch (error) {
-      showAlert('Error scanning folder: ' + error.message, 'error');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      showAlert('Error scanning folder: ' + errorMessage, 'error');
     } finally {
       setLoading(false);
     }
   };
 
   // Handle drag and drop
-  const handleDragOver = (e) => {
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.currentTarget.classList.add('dragging');
   };
 
-  const handleDragLeave = (e) => {
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.currentTarget.classList.remove('dragging');
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.currentTarget.classList.remove('dragging');
     const files = e.dataTransfer.files;
@@ -102,9 +123,9 @@ function App() {
   };
 
   // Update resume data
-  const updateResumeField = (id, field, value) => {
+  const updateResumeField = (id: string | number, field: keyof Resume, value: string) => {
     setResumes(resumes.map(resume =>
-      resume.id === id ? { ...resume, [field]: value } : resume
+      resume.id === id ? { ...resume, [field]: value } as Resume : resume
     ));
   };
 
@@ -133,14 +154,15 @@ function App() {
         showAlert(data.error || 'Failed to export Excel', 'error');
       }
     } catch (error) {
-      showAlert('Error exporting Excel: ' + error.message, 'error');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      showAlert('Error exporting Excel: ' + errorMessage, 'error');
     } finally {
       setLoading(false);
     }
   };
 
   // Generate PDF for a resume
-  const handleGeneratePDF = async (resume) => {
+  const handleGeneratePDF = async (resume: Resume) => {
     if (!companyContact.email || !companyContact.phone) {
       showAlert('Please enter company contact details first', 'error');
       return;
@@ -172,7 +194,8 @@ function App() {
         showAlert(data.error || 'Failed to generate PDF', 'error');
       }
     } catch (error) {
-      showAlert('Error generating PDF: ' + error.message, 'error');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      showAlert('Error generating PDF: ' + errorMessage, 'error');
     } finally {
       setLoading(false);
     }
@@ -218,7 +241,7 @@ function App() {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              onClick={() => document.getElementById('file-input').click()}
+              onClick={() => document.getElementById('file-input')?.click()}
             >
               <div className="upload-icon">📄</div>
               <h3>Drop resumes here or click to browse</h3>
@@ -244,7 +267,7 @@ function App() {
                   placeholder="e.g., C:\Users\YourName\Desktop\Resumes"
                   value={folderPath}
                   onChange={(e) => setFolderPath(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleFolderScan()}
+                  onKeyPress={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleFolderScan()}
                 />
                 <button
                   className="btn btn-primary"
@@ -267,14 +290,14 @@ function App() {
                 type="email"
                 placeholder="company@example.com"
                 value={companyContact.email}
-                onChange={(e) => setCompanyContact({ ...companyContact, email: e.target.value })}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setCompanyContact({ ...companyContact, email: e.target.value })}
               />
               <label>Company Phone:</label>
               <input
                 type="tel"
                 placeholder="+91 1234567890"
                 value={companyContact.phone}
-                onChange={(e) => setCompanyContact({ ...companyContact, phone: e.target.value })}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setCompanyContact({ ...companyContact, phone: e.target.value })}
               />
             </div>
             <button
@@ -323,7 +346,7 @@ function App() {
                         type="text"
                         placeholder="e.g., 5 LPA"
                         value={resume.currentCTC}
-                        onChange={(e) => updateResumeField(resume.id, 'currentCTC', e.target.value)}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => updateResumeField(resume.id, 'currentCTC', e.target.value)}
                       />
                     </td>
                     <td>
@@ -331,7 +354,7 @@ function App() {
                         type="text"
                         placeholder="e.g., 7 LPA"
                         value={resume.expectedPay}
-                        onChange={(e) => updateResumeField(resume.id, 'expectedPay', e.target.value)}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => updateResumeField(resume.id, 'expectedPay', e.target.value)}
                       />
                     </td>
                     <td>
@@ -339,7 +362,7 @@ function App() {
                         type="text"
                         placeholder="e.g., 30 days"
                         value={resume.availabilityToJoin}
-                        onChange={(e) => updateResumeField(resume.id, 'availabilityToJoin', e.target.value)}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => updateResumeField(resume.id, 'availabilityToJoin', e.target.value)}
                       />
                     </td>
                     <td>
