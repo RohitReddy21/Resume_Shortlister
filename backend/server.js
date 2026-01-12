@@ -18,10 +18,13 @@ const PORT = process.env.PORT || 5000;
 const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigin = process.env.FRONTEND_URL;
-    // Allow if no origin (like mobile apps or curl) or if it matches our settings
-    if (!origin || (allowedOrigin && (origin === allowedOrigin || origin === allowedOrigin.replace(/\/$/, '')))) {
-      callback(null, true);
-    } else if (!allowedOrigin || origin === 'http://localhost:5173') {
+
+    // Check if origin matches
+    const isVercel = origin && origin.includes('vercel.app') && origin.includes('resume-shortlister');
+    const isLocal = origin && origin.includes('localhost');
+    const isMatched = allowedOrigin && origin && (origin === allowedOrigin || origin === allowedOrigin.replace(/\/$/, ''));
+
+    if (!origin || isMatched || isVercel || isLocal || !allowedOrigin) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
