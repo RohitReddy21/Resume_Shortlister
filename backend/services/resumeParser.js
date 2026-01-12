@@ -22,12 +22,11 @@ export async function parseResume(filePath) {
             throw new Error('Unsupported file format');
         }
 
-        // Clean up text
-        const cleanText = text.replace(/\r/g, '\n').replace(/\n\s*\n/g, '\n');
+        // Preserve basic layout but clean excess whitespace
+        const cleanText = text.replace(/\r/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n');
 
         // Extract information from text
-        const extractedData = extractResumeData(cleanText);
-        return extractedData;
+        return extractResumeData(cleanText);
     } catch (error) {
         console.error('Error parsing resume:', error);
         return {
@@ -45,51 +44,76 @@ export async function parseResume(filePath) {
  * Extract structured data from resume text using regex patterns
  */
 function extractResumeData(text) {
+    // We analyze the header (first 1000 chars) more intensely for personal info
+    const header = text.slice(0, 1000);
+
     return {
-        name: extractName(text),
+        name: extractName(header, text),
         email: extractEmail(text),
         contact: extractPhone(text),
-        place: extractLocation(text),
+        place: extractLocation(header, text),
         skills: extractSkills(text),
         experience: extractExperience(text)
     };
 }
 
 /**
- * Extract name - improved version
+ * Extract name - Uses a blacklist to avoid common header noise
  */
-function extractName(text) {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+function extractName(header, fullText) {
+    const lines = header.split('\n').map(l => l.trim()).filter(l => l.length > 2);
 
-    // Noise words that shouldn't be in a name
-    const noise = ['address', 'location', 'phone', 'email', 'mobile', 'contact', 'curriculum', 'vitae', 'resume', 'bio', 'summary'];
+    // Blacklist of words that often appear at the top but aren't names
+    const blackList = [
+        'resume', 'cv', 'curriculum', 'vitae', 'profile', 'summary', 'professional',
+        'contact', 'email', 'phone', 'mobile', 'address', 'location', 'linkedin',
+        'github', 'developer', 'engineer', 'manager', 'lead', 'senior', 'junior',
+        'backend', 'frontend', 'fullstack', 'software', 'web', 'data', 'analyst',
+        'experience', 'education', 'skills', 'objective', 'about', 'me', 'page'
+    ];
 
-    for (let i = 0; i < Math.min(lines.length, 10); i++) {
+    for (let i = 0; i < Math.min(lines.length, 6); i++) {
         const line = lines[i];
+        const lineLower = line.toLowerCase();
 
-        // Skip lines that contain noise words
-        if (noise.some(word => line.toLowerCase().includes(word))) continue;
+        // 1. Check if line is purely a blacklist item or job title
+        if (blackList.some(word => lineLower === word || lineLower.startsWith(word + ' '))) continue;
 
-        // Skip lines with @ (emails) or too many numbers
+        // 2. Skip emails and phone numbers
         if (line.includes('@') || (line.match(/\d/g) || []).length > 4) continue;
 
-        // Pattern for a typical name: 2-3 words, capitalized
-        const nameMatch = line.match(/^([A-Z][a-z]+(?:\s+[A-Z](?:[a-z]+|\.))?\s+[A-Z][a-z]+)$/);
-        if (nameMatch) return nameMatch[1];
+        // 3. Match 2-3 words starting with Capital letters
+        // Matches "John Doe", "Jane S. Doe", "Dr. Alan Smith"
+        const nameMatch = line.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z\.]*)*\s+[A-Z][a-z]+)$/);
+        if (nameMatch) {
+            const name = nameMatch[1];
+            // Final check: ensures found string isn't too long or contains non-name noise
+            if (name.split(' ').length <= 4 && name.length < 40) return name;
+        }
 
-        // Looser pattern: just 2-3 capitalized words
-        const looseMatch = line.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b/);
-        if (looseMatch && looseMatch[1].split(' ').length >= 2) return looseMatch[1];
+        // 4. Fallback: Take first multi-word capitalized line that isn't blacklisted
+        const words = line.split(/\s+/);
+        if (words.length >= 2 && words.length <= 4 &&
+            words.every(w => /^[A-Z]/.test(w)) &&
+            !blackList.some(b => lineLower.includes(b))) {
+            return line;
+        }
     }
+
+    // Try a "Name: X" regex catch-all
+    const explicitMatch = fullText.match(/(?:Name|NAME)\s*:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})/i);
+    if (explicitMatch) return explicitMatch[1].trim();
 
     return 'Not Found';
 }
 
 /**
- * Extract email address
+ * Extract email address - Stricter boundaries
  */
 function extractEmail(text) {
-    const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/gi;
+    // This regex ensures we don't pick up leading numbers (often phone numbers) 
+    // that are stuck to the email in the PDF text layer.
+    const emailRegex = /([a-zA-Z][a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
     const match = text.match(emailRegex);
     return match ? match[0].toLowerCase() : '';
 }
@@ -98,11 +122,12 @@ function extractEmail(text) {
  * Extract phone number
  */
 function extractPhone(text) {
+    // Specifically looking for 10 consecutive or formatted digits
     const phoneRegex = /(?:(?:\+91|91|0)[\s-]?)?([6-9]\d{9}|[6-9]\d{2}[\s-]\d{3}[\s-]\d{4}|\d{5}[\s-]\d{5})/g;
     const matches = text.match(phoneRegex);
     if (matches) {
-        // Return first valid looking 10-digit sequence
-        return matches[0].replace(/[\s-+]/g, '').slice(-10);
+        let phone = matches[0].replace(/[\s-+]/g, '');
+        return phone.length > 10 ? phone.slice(-10) : phone;
     }
     return '';
 }
@@ -110,20 +135,32 @@ function extractPhone(text) {
 /**
  * Extract location
  */
-function extractLocation(text) {
-    const cities = ['mumbai', 'delhi', 'bangalore', 'bengaluru', 'hyderabad', 'chennai', 'kolkata', 'pune', 'ahmedabad', 'jaipur', 'lucknow', 'chandigarh', 'gurgaon', 'gurugram', 'noida', 'pune', 'kochi', 'thiruvananthapuram', 'coimbatore', 'madurai', 'mysore', 'visakhapatnam', 'nagpur', 'indore', 'bhopal', 'patna', 'ranchi', 'bhubaneswar', 'guwahati'];
+function extractLocation(header, fullText) {
+    const cities = ['mumbai', 'delhi', 'bangalore', 'bengaluru', 'hyderabad', 'chennai', 'kolkata', 'pune', 'ahmedabad', 'jaipur', 'lucknow', 'chandigarh', 'gurgaon', 'gurugram', 'noida', 'kochi', 'thiruvananthapuram', 'coimbatore', 'madurai', 'mysore', 'visakhapatnam', 'nagpur', 'indore', 'bhopal', 'patna', 'ranchi', 'bhubaneswar', 'guwahati', 'kanpur', 'surat', 'vadodara'];
 
-    const textLower = text.toLowerCase();
+    // Check header first for city names
+    const headerLower = header.toLowerCase();
     for (const city of cities) {
-        if (textLower.includes(city)) {
+        if (headerLower.includes(city)) {
             return city.charAt(0).toUpperCase() + city.slice(1);
         }
     }
 
-    // Try to find "Location: X" pattern
-    const locMatch = text.match(/(?:Location|Address|Place|City)\s*:?\s*([A-Z][a-z]+)/i);
-    if (locMatch && !['road', 'street', 'lane'].includes(locMatch[1].toLowerCase())) {
-        return locMatch[1].trim();
+    // Look for explicit patterns
+    const patterns = [
+        /(?:Location|Address|Place|City|Residence)\s*:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i,
+        /\b(?:in|at|from)\s+([A-Z][a-z]+(?:,\s*[A-Z][a-z]+)*)\b/
+    ];
+
+    for (const pattern of patterns) {
+        const match = fullText.match(pattern);
+        if (match && match[1]) {
+            const loc = match[1].trim();
+            // Filter out junk matches like "ing", "Email", etc.
+            if (loc.length > 3 && !['road', 'street', 'lane', 'email', 'name'].includes(loc.toLowerCase())) {
+                return loc;
+            }
+        }
     }
 
     return '';
@@ -143,7 +180,7 @@ function extractSkills(text) {
     ];
 
     const foundSkills = [];
-    const textLower = text.toLowerCase();
+    text = text.toLowerCase();
 
     skillKeywords.forEach(skill => {
         // Escape special chars like . or + in skill names
