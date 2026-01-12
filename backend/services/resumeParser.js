@@ -77,87 +77,96 @@ function extractResumeData(text) {
 }
 
 /**
- * Advanced Name Extraction
+ * Improved Name Extraction - More robust and flexible
  */
 function extractName(header, fullText, email) {
-    const lines = header.split('\n').map(l => l.trim()).filter(l => l.length > 2);
-
-    // Comprehensive blacklist of job roles and technical terms
-    const roleBlacklist = [
-        'developer', 'engineer', 'stack', 'backend', 'frontend', 'software', 'lead',
-        'senior', 'junior', 'expert', 'architect', 'manager', 'executive', 'student',
-        'machine', 'learning', 'data', 'analyst', 'full', 'stack', 'dot', 'net', 'java',
-        'python', 'react', 'web', 'ui', 'ux', 'designer', 'consultant', 'graduate',
-        'intern', 'associate', 'technology', 'solution', 'quality', 'tester', 'qa',
-        'devops', 'cloud', 'system', 'admin', 'network', 'security', 'cyber', 'project',
-        'program', 'delivery', 'service', 'operation', 'sales', 'marketing', 'hr',
-        'recruiter', 'business', 'resume', 'cv', 'curriculum', 'vitae', 'profile'
+    // Explicit patterns first
+    const explicitPatterns = [
+        /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/m,
+        /(?:Name|Applicant|Candidate)\s*:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z\.]+)+)/i,
+        /([A-Z][a-z]+\s+[A-Z][a-z]+)\s*\n.*(?:email|phone|address)/i
     ];
 
-    const contactKeywords = ['phone', 'mobile', 'email', 'contact', 'address', 'linkedin', 'github', 'location'];
+    for (const pattern of explicitPatterns) {
+        const match = fullText.match(pattern);
+        if (match) {
+            const name = match[1].trim();
+            if (isValidName(name)) return name;
+        }
+    }
 
-    // Strategy 1: Look at the lines around the email address
+    // Extract from email username if valid format
     if (email) {
-        const emailStripped = email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
-        for (let i = 0; i < Math.min(lines.length, 15); i++) {
-            const line = lines[i];
-            const lineLower = line.toLowerCase();
-
-            // Skip contact info
-            if (contactKeywords.some(k => lineLower.includes(k))) continue;
-            if (lineLower.includes('@')) continue;
-
-            // Check if line contains a significant portion of the email username
-            const nameParts = lineLower.split(/\s+/);
-            const matchesEmail = nameParts.length >= 2 && nameParts.some(p => p.length > 2 && emailStripped.includes(p));
-
-            if (matchesEmail) {
-                // Verify it doesn't look like a role
-                if (!roleBlacklist.some(role => lineLower.includes(role))) {
-                    return line.replace(/[^\w\s].*$/, '').trim(); // Remove trailing icons/chars
-                }
-            }
+        const username = email.split('@')[0];
+        const nameFromEmail = reconstructNameFromEmail(username);
+        if (nameFromEmail && isValidName(nameFromEmail)) {
+            return nameFromEmail;
         }
     }
 
-    // Strategy 2: First valid line starting with Capital Letter that isn't a role
-    for (let i = 0; i < Math.min(lines.length, 8); i++) {
+    // Get first few lines and find best candidate
+    const lines = header.split('\n').map(l => l.trim()).filter(l => l.length > 2 && l.length < 100);
+    
+    for (let i = 0; i < Math.min(lines.length, 10); i++) {
         const line = lines[i];
-        const lineLower = line.toLowerCase();
+        
+        // Skip if it's clearly not a name
+        if (isNotAName(line)) continue;
+        
+        // Check if it looks like a name (proper noun structure)
         const words = line.split(/\s+/);
-
-        // Skip if contains role keywords or contact keywords
-        if (roleBlacklist.some(role => lineLower.includes(role))) continue;
-        if (contactKeywords.some(k => lineLower.includes(k))) continue;
-        if (lineLower.includes('@') || (line.match(/\d/g) || []).length > 4) continue;
-
-        // Must be 2-4 words, all capitalized
-        const isCapitalized = words.length >= 2 && words.length <= 4 && words.every(w => {
-            // Must start with caps, can have dots (A.J. Smith)
-            return /^[A-Z]/.test(w);
-        });
-
-        if (isCapitalized) {
-            // Extra check: ensure not purely upper case common words (e.g. "SUMMARY", "OBJECTIVE")
-            if (!/^[A-Z\s]+$/.test(line) || line.length > 3) {
-                return line;
+        if (words.length >= 2 && words.length <= 4) {
+            if (words.every(w => /^[A-Z]/.test(w) && w.length > 1)) {
+                if (isValidName(line)) return line;
             }
         }
     }
 
-    // Strategy 3: Try to find "Name: X"
-    const explicitMatch = fullText.match(/(?:Name|Applicant|Candidate)\s*:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z\.]+)*\s+[A-Z][a-z]+)/i);
-    if (explicitMatch) return explicitMatch[1].trim();
+    return null;
+}
 
-    // Strategy 4: Fallback to the very first sensible line
-    if (lines.length > 0) {
-        const firstLine = lines[0];
-        if (firstLine.split(' ').length <= 4 && !roleBlacklist.some(r => firstLine.toLowerCase().includes(r))) {
-            return firstLine;
-        }
-    }
+/**
+ * Helper: Reconstruct name from email username
+ */
+function reconstructNameFromEmail(username) {
+    // Remove common separators and patterns
+    let name = username.replace(/[._-]/g, ' ').replace(/\d+/g, '');
+    
+    // Capitalize words
+    name = name.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ').trim();
+    
+    if (name.length > 3) return name;
+    return null;
+}
 
-    return 'Not Found';
+/**
+ * Helper: Validate if string is likely a name
+ */
+function isValidName(str) {
+    if (!str || str.length < 3 || str.length > 100) return false;
+    
+    const words = str.split(/\s+/);
+    
+    // Name should have at least 2 words
+    if (words.length < 2) return false;
+    
+    // Each word should be mostly letters
+    return words.every(w => /^[A-Za-z\s'.'-]+$/.test(w) && w.length > 1);
+}
+
+/**
+ * Helper: Check if line is NOT a name
+ */
+function isNotAName(str) {
+    const notNamePatterns = [
+        /^[A-Z\s]{2,}$/,  // All caps
+        /(?:phone|email|linkedin|github|address|location|summary|objective|about|skills?|experience|education|project|certification)/i,
+        /^\d+/, // Starts with number
+        /[^\w\s'-].*[^\w\s'-]/,  // Special characters
+        /(?:developer|engineer|manager|lead|director|analyst|consultant|designer|architect|executive)/i  // Job titles alone
+    ];
+    
+    return notNamePatterns.some(pattern => pattern.test(str));
 }
 
 /**
@@ -214,54 +223,128 @@ function extractLocation(header, fullText) {
 }
 
 /**
- * Enhanced Skills and Tools Extraction - Separated into skills and tools_and_technologies
+ * Enhanced Skills and Tools Extraction - Dynamic and comprehensive
+ * Extracts both predefined and unknown skills from the resume
  */
 function extractSkillsAndTools(text) {
-    const softSkills = [
+    // Predefined lists for validation
+    const commonSoftSkills = [
         'Leadership', 'Communication', 'Problem Solving', 'Team Work', 'Teamwork', 
         'Adaptability', 'Critical Thinking', 'Creativity', 'Time Management', 'Organization',
         'Customer Service', 'Decision Making', 'Negotiation', 'Public Speaking', 'Analytical',
-        'Project Management', 'Agile', 'Scrum', 'Jira', 'Collaboration'
+        'Project Management', 'Agile', 'Scrum', 'Collaboration', 'Mentoring', 'Presentation'
     ];
 
-    const tools = [
+    const commonTools = [
         'Python', 'Java', 'JavaScript', 'TypeScript', 'C++', 'C#', 'PHP', 'Ruby', 'Swift', 'Go', 'Rust', 'Kotlin', 'SQL',
         'React', 'Angular', 'Vue', 'Next.js', 'Node.js', 'Express', 'Django', 'Flask', 'Spring Boot', 'Laravel', 'ASP.NET',
         'MongoDB', 'PostgreSQL', 'MySQL', 'Redis', 'Elasticsearch', 'Firebase', 'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes',
         'HTML', 'CSS', 'Sass', 'Tailwind', 'Bootstrap', 'Redux', 'GraphQL', 'REST API', 'Microservices',
         'Machine Learning', 'Deep Learning', 'NLP', 'Computer Vision', 'Data Science', 'Pandas', 'NumPy', 'Scikit-learn', 'TensorFlow', 'PyTorch',
-        'Git', 'CI/CD', 'Postman', 'Tableau', 'Power BI', 'Excel', 'Figma', 'Adobe XD', 'Linux', 'Windows'
+        'Git', 'CI/CD', 'Postman', 'Tableau', 'Power BI', 'Excel', 'Figma', 'Adobe XD', 'Linux', 'Windows', 'Jira'
     ];
 
     const foundSkills = [];
     const foundTools = [];
-    const textLower = text.toLowerCase();
     const seen = new Set();
+    const textLower = text.toLowerCase();
 
-    // Extract soft skills
-    softSkills.forEach(skill => {
-        const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+    // 1. Extract predefined soft skills
+    commonSoftSkills.forEach(skill => {
+        const regex = new RegExp(`\\b${skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
         if (regex.test(textLower) && !seen.has(skill.toLowerCase())) {
             foundSkills.push(skill);
             seen.add(skill.toLowerCase());
         }
     });
 
-    // Extract tools/technologies
-    tools.forEach(tool => {
-        const escaped = tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+    // 2. Extract predefined tools/technologies
+    commonTools.forEach(tool => {
+        const regex = new RegExp(`\\b${tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
         if (regex.test(textLower) && !seen.has(tool.toLowerCase())) {
             foundTools.push(tool);
             seen.add(tool.toLowerCase());
         }
     });
 
+    // 3. Extract dynamic skills from "Skills" section
+    const skillsSection = extractSection(text, /(?:technical\s+)?skills?|competencies|expertise|proficiencies/i);
+    if (skillsSection) {
+        const dynamicSkills = extractDynamicSkills(skillsSection, seen);
+        foundTools.push(...dynamicSkills);
+    }
+
+    // 4. Extract skills from work experience descriptions
+    const expSection = extractSection(text, /(?:work\s+)?experience|employment history/i);
+    if (expSection) {
+        const expSkills = extractDynamicSkills(expSection, seen);
+        foundTools.push(...expSkills);
+    }
+
+    // 5. Extract skills from projects section
+    const projectSection = extractSection(text, /projects?|portfolio/i);
+    if (projectSection) {
+        const projectSkills = extractDynamicSkills(projectSection, seen);
+        foundTools.push(...projectSkills);
+    }
+
+    // Remove duplicates and return
+    const uniqueTools = [...new Set(foundTools)];
+    
     return {
         skills: foundSkills.slice(0, 20),
-        tools: foundTools.slice(0, 25)
+        tools: uniqueTools.slice(0, 40)
     };
+}
+
+/**
+ * Helper: Extract a section from resume
+ */
+function extractSection(text, sectionPattern) {
+    const parts = text.split(sectionPattern);
+    if (parts.length < 2) return null;
+    
+    // Get the next section or next 2000 chars
+    const nextPart = parts[1];
+    const nextSectionMatch = nextPart.match(/\n(?:education|work|experience|project|skill|certificate|summary|objective|about)/i);
+    
+    if (nextSectionMatch) {
+        return nextPart.slice(0, nextSectionMatch.index);
+    }
+    
+    return nextPart.slice(0, 2000);
+}
+
+/**
+ * Helper: Extract skills dynamically from text
+ * Looks for capitalized words and technical-sounding terms
+ */
+function extractDynamicSkills(sectionText, seenSet) {
+    const skills = [];
+    
+    // Split by common delimiters
+    const items = sectionText.split(/[,;•\n|→]/);
+    
+    for (const item of items) {
+        let skill = item.trim().replace(/^[-*•]\s*/, '').trim();
+        
+        // Remove trailing descriptions
+        skill = skill.split(/(?:\s*[-–—]\s*|\s+\()/)[0].trim();
+        
+        // Validate skill
+        if (skill.length > 2 && skill.length < 100 && 
+            !seenSet.has(skill.toLowerCase()) &&
+            /^[A-Z]/.test(skill) &&  // Starts with capital
+            !/^(?:the|a|an|and|or|in|at|to|for|with|by|from|as|is|are|have|has|will|can|should|may|must|would|could|might)$/i.test(skill) &&  // Not common words
+            !/\d{3,}/.test(skill) &&  // No long numbers
+            !/https?:\/\//.test(skill)) {  // Not URLs
+            
+            skills.push(skill);
+            seenSet.add(skill.toLowerCase());
+        }
+    }
+    
+    return skills;
 }
 
 /**
