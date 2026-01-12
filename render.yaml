@@ -1,0 +1,8 @@
+# Render Backend Configuration
+# This file tells Render how to build and run the backend
+
+# Build command
+buildCommand = "cd backend && npm install"
+
+# Start command  
+startCommand = "cd backend && npm start"
