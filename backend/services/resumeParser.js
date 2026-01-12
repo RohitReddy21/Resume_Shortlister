@@ -22,8 +22,8 @@ export async function parseResume(filePath) {
             throw new Error('Unsupported file format');
         }
 
-        // Preserve basic layout but clean excess whitespace
-        const cleanText = text.replace(/\r/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n');
+        // Clean up text but maintain line breaks
+        const cleanText = text.replace(/\r/g, '\n').replace(/[ \t]+/g, ' ');
 
         // Extract information from text
         return extractResumeData(cleanText);
@@ -40,16 +40,13 @@ export async function parseResume(filePath) {
     }
 }
 
-/**
- * Extract structured data from resume text using regex patterns
- */
 function extractResumeData(text) {
-    // We analyze the header (first 1000 chars) more intensely for personal info
-    const header = text.slice(0, 1000);
+    const email = extractEmail(text);
+    const header = text.slice(0, 1500);
 
     return {
-        name: extractName(header, text),
-        email: extractEmail(text),
+        name: extractName(header, text, email),
+        email: email,
         contact: extractPhone(text),
         place: extractLocation(header, text),
         skills: extractSkills(text),
@@ -58,71 +55,102 @@ function extractResumeData(text) {
 }
 
 /**
- * Extract name - Uses a blacklist to avoid common header noise
+ * Advanced Name Extraction
  */
-function extractName(header, fullText) {
+function extractName(header, fullText, email) {
     const lines = header.split('\n').map(l => l.trim()).filter(l => l.length > 2);
 
-    // Blacklist of words that often appear at the top but aren't names
-    const blackList = [
-        'resume', 'cv', 'curriculum', 'vitae', 'profile', 'summary', 'professional',
-        'contact', 'email', 'phone', 'mobile', 'address', 'location', 'linkedin',
-        'github', 'developer', 'engineer', 'manager', 'lead', 'senior', 'junior',
-        'backend', 'frontend', 'fullstack', 'software', 'web', 'data', 'analyst',
-        'experience', 'education', 'skills', 'objective', 'about', 'me', 'page'
+    // Comprehensive blacklist of job roles and technical terms
+    const roleBlacklist = [
+        'developer', 'engineer', 'stack', 'backend', 'frontend', 'software', 'lead',
+        'senior', 'junior', 'expert', 'architect', 'manager', 'executive', 'student',
+        'machine', 'learning', 'data', 'analyst', 'full', 'stack', 'dot', 'net', 'java',
+        'python', 'react', 'web', 'ui', 'ux', 'designer', 'consultant', 'graduate',
+        'intern', 'associate', 'technology', 'solution', 'quality', 'tester', 'qa',
+        'devops', 'cloud', 'system', 'admin', 'network', 'security', 'cyber', 'project',
+        'program', 'delivery', 'service', 'operation', 'sales', 'marketing', 'hr',
+        'recruiter', 'business', 'resume', 'cv', 'curriculum', 'vitae', 'profile'
     ];
 
-    for (let i = 0; i < Math.min(lines.length, 6); i++) {
-        const line = lines[i];
-        const lineLower = line.toLowerCase();
+    const contactKeywords = ['phone', 'mobile', 'email', 'contact', 'address', 'linkedin', 'github', 'location'];
 
-        // 1. Check if line is purely a blacklist item or job title
-        if (blackList.some(word => lineLower === word || lineLower.startsWith(word + ' '))) continue;
+    // Strategy 1: Look at the lines around the email address
+    if (email) {
+        const emailStripped = email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
+        for (let i = 0; i < Math.min(lines.length, 15); i++) {
+            const line = lines[i];
+            const lineLower = line.toLowerCase();
 
-        // 2. Skip emails and phone numbers
-        if (line.includes('@') || (line.match(/\d/g) || []).length > 4) continue;
+            // Skip contact info
+            if (contactKeywords.some(k => lineLower.includes(k))) continue;
+            if (lineLower.includes('@')) continue;
 
-        // 3. Match 2-3 words starting with Capital letters
-        // Matches "John Doe", "Jane S. Doe", "Dr. Alan Smith"
-        const nameMatch = line.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z\.]*)*\s+[A-Z][a-z]+)$/);
-        if (nameMatch) {
-            const name = nameMatch[1];
-            // Final check: ensures found string isn't too long or contains non-name noise
-            if (name.split(' ').length <= 4 && name.length < 40) return name;
-        }
+            // Check if line contains a significant portion of the email username
+            const nameParts = lineLower.split(/\s+/);
+            const matchesEmail = nameParts.length >= 2 && nameParts.some(p => p.length > 2 && emailStripped.includes(p));
 
-        // 4. Fallback: Take first multi-word capitalized line that isn't blacklisted
-        const words = line.split(/\s+/);
-        if (words.length >= 2 && words.length <= 4 &&
-            words.every(w => /^[A-Z]/.test(w)) &&
-            !blackList.some(b => lineLower.includes(b))) {
-            return line;
+            if (matchesEmail) {
+                // Verify it doesn't look like a role
+                if (!roleBlacklist.some(role => lineLower.includes(role))) {
+                    return line.replace(/[^\w\s].*$/, '').trim(); // Remove trailing icons/chars
+                }
+            }
         }
     }
 
-    // Try a "Name: X" regex catch-all
-    const explicitMatch = fullText.match(/(?:Name|NAME)\s*:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})/i);
+    // Strategy 2: First valid line starting with Capital Letter that isn't a role
+    for (let i = 0; i < Math.min(lines.length, 8); i++) {
+        const line = lines[i];
+        const lineLower = line.toLowerCase();
+        const words = line.split(/\s+/);
+
+        // Skip if contains role keywords or contact keywords
+        if (roleBlacklist.some(role => lineLower.includes(role))) continue;
+        if (contactKeywords.some(k => lineLower.includes(k))) continue;
+        if (lineLower.includes('@') || (line.match(/\d/g) || []).length > 4) continue;
+
+        // Must be 2-4 words, all capitalized
+        const isCapitalized = words.length >= 2 && words.length <= 4 && words.every(w => {
+            // Must start with caps, can have dots (A.J. Smith)
+            return /^[A-Z]/.test(w);
+        });
+
+        if (isCapitalized) {
+            // Extra check: ensure not purely upper case common words (e.g. "SUMMARY", "OBJECTIVE")
+            if (!/^[A-Z\s]+$/.test(line) || line.length > 3) {
+                return line;
+            }
+        }
+    }
+
+    // Strategy 3: Try to find "Name: X"
+    const explicitMatch = fullText.match(/(?:Name|Applicant|Candidate)\s*:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z\.]+)*\s+[A-Z][a-z]+)/i);
     if (explicitMatch) return explicitMatch[1].trim();
+
+    // Strategy 4: Fallback to the very first sensible line
+    if (lines.length > 0) {
+        const firstLine = lines[0];
+        if (firstLine.split(' ').length <= 4 && !roleBlacklist.some(r => firstLine.toLowerCase().includes(r))) {
+            return firstLine;
+        }
+    }
 
     return 'Not Found';
 }
 
 /**
- * Extract email address - Stricter boundaries
+ * Improved Email Extraction
  */
 function extractEmail(text) {
-    // This regex ensures we don't pick up leading numbers (often phone numbers) 
-    // that are stuck to the email in the PDF text layer.
-    const emailRegex = /([a-zA-Z][a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
-    const match = text.match(emailRegex);
-    return match ? match[0].toLowerCase() : '';
+    const emailRegex = /\b([a-zA-Z][a-zA-Z0-9._%+-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/gi;
+    const matches = text.match(emailRegex);
+    return matches ? matches[0].toLowerCase() : '';
 }
 
 /**
- * Extract phone number
+ * Improved Phone Extraction
  */
 function extractPhone(text) {
-    // Specifically looking for 10 consecutive or formatted digits
     const phoneRegex = /(?:(?:\+91|91|0)[\s-]?)?([6-9]\d{9}|[6-9]\d{2}[\s-]\d{3}[\s-]\d{4}|\d{5}[\s-]\d{5})/g;
     const matches = text.match(phoneRegex);
     if (matches) {
@@ -133,12 +161,11 @@ function extractPhone(text) {
 }
 
 /**
- * Extract location
+ * Improved Location Extraction
  */
 function extractLocation(header, fullText) {
     const cities = ['mumbai', 'delhi', 'bangalore', 'bengaluru', 'hyderabad', 'chennai', 'kolkata', 'pune', 'ahmedabad', 'jaipur', 'lucknow', 'chandigarh', 'gurgaon', 'gurugram', 'noida', 'kochi', 'thiruvananthapuram', 'coimbatore', 'madurai', 'mysore', 'visakhapatnam', 'nagpur', 'indore', 'bhopal', 'patna', 'ranchi', 'bhubaneswar', 'guwahati', 'kanpur', 'surat', 'vadodara'];
 
-    // Check header first for city names
     const headerLower = header.toLowerCase();
     for (const city of cities) {
         if (headerLower.includes(city)) {
@@ -146,7 +173,6 @@ function extractLocation(header, fullText) {
         }
     }
 
-    // Look for explicit patterns
     const patterns = [
         /(?:Location|Address|Place|City|Residence)\s*:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i,
         /\b(?:in|at|from)\s+([A-Z][a-z]+(?:,\s*[A-Z][a-z]+)*)\b/
@@ -156,8 +182,7 @@ function extractLocation(header, fullText) {
         const match = fullText.match(pattern);
         if (match && match[1]) {
             const loc = match[1].trim();
-            // Filter out junk matches like "ing", "Email", etc.
-            if (loc.length > 3 && !['road', 'street', 'lane', 'email', 'name'].includes(loc.toLowerCase())) {
+            if (loc.length > 3 && !['road', 'street', 'lane', 'email', 'name', 'phone'].includes(loc.toLowerCase())) {
                 return loc;
             }
         }
@@ -167,7 +192,7 @@ function extractLocation(header, fullText) {
 }
 
 /**
- * Extract skills - Comprehensive list
+ * Improved Skills Extraction
  */
 function extractSkills(text) {
     const skillKeywords = [
@@ -180,13 +205,12 @@ function extractSkills(text) {
     ];
 
     const foundSkills = [];
-    text = text.toLowerCase();
+    const textLower = text.toLowerCase();
 
     skillKeywords.forEach(skill => {
-        // Escape special chars like . or + in skill names
         const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const regex = new RegExp(`\\b${escaped}\\b`, 'i');
-        if (regex.test(text)) {
+        if (regex.test(textLower)) {
             foundSkills.push(skill);
         }
     });
@@ -195,7 +219,7 @@ function extractSkills(text) {
 }
 
 /**
- * Extract years of experience
+ * Improved Experience Extraction
  */
 function extractExperience(text) {
     const expPatterns = [
@@ -209,7 +233,6 @@ function extractExperience(text) {
         if (match) return `${match[1]} years`;
     }
 
-    // Try counting year ranges e.g. 2018 - 2022
     const yearRanges = text.match(/(?:20|19)\d{2}\s*-\s*(?:20\d{2}|present|current)/gi);
     if (yearRanges) {
         let total = 0;
