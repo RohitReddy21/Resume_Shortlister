@@ -25,6 +25,11 @@ app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/exports', express.static(path.join(__dirname, 'exports')));
 
+// Health check / Root route
+app.get('/', (req, res) => {
+  res.json({ status: 'Backend is running', version: '1.0.0' });
+});
+
 // Ensure directories exist
 const ensureDirectories = async () => {
   const dirs = ['uploads', 'exports'];
