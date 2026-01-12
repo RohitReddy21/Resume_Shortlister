@@ -336,10 +336,8 @@ function App() {
                     <td>{resume.email}</td>
                     <td>{resume.contact}</td>
                     <td>{resume.place}</td>
-                    <td title={resume.skills}>
-                      {resume.skills.length > 30
-                        ? resume.skills.substring(0, 30) + '...'
-                        : resume.skills}
+                    <td className="skills-cell">
+                      {resume.skills}
                     </td>
                     <td>{resume.experience}</td>
                     <td>

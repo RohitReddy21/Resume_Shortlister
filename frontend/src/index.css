@@ -245,6 +245,14 @@ body {
   border-bottom: 1px solid var(--border-color);
   font-size: 0.9rem;
   color: var(--text-main);
+  vertical-align: top;
+}
+
+.skills-cell {
+  min-width: 250px;
+  max-width: 400px;
+  white-space: normal;
+  word-wrap: break-word;
 }
 
 .resume-table tr:last-child td {
