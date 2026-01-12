@@ -16,7 +16,17 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: function (origin, callback) {
+    const allowedOrigin = process.env.FRONTEND_URL;
+    // Allow if no origin (like mobile apps or curl) or if it matches our settings
+    if (!origin || (allowedOrigin && (origin === allowedOrigin || origin === allowedOrigin.replace(/\/$/, '')))) {
+      callback(null, true);
+    } else if (!allowedOrigin || origin === 'http://localhost:5173') {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   optionsSuccessStatus: 200
 };
