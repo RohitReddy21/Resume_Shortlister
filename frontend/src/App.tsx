@@ -1,4 +1,5 @@
-import { useState, ChangeEvent, DragEvent, KeyboardEvent } from 'react';
+import { useState } from 'react';
+import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react';
 import './App.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
