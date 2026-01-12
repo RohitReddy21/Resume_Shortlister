@@ -88,22 +88,21 @@ app.post('/api/upload-resumes', upload.array('resumes', 50), async (req, res) =>
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    const parsedResumes = [];
-
-    for (const file of req.files) {
+    // Use Promise.all for parallel parsing to improve speed
+    const parsingPromises = req.files.map(async (file) => {
       try {
         const resumeData = await parseResume(file.path);
-        parsedResumes.push({
+        return {
           id: Date.now() + Math.random(),
           fileName: file.originalname,
           ...resumeData,
           currentCTC: '',
           expectedPay: '',
           availabilityToJoin: ''
-        });
+        };
       } catch (error) {
         console.error(`Error parsing ${file.originalname}:`, error);
-        parsedResumes.push({
+        return {
           id: Date.now() + Math.random(),
           fileName: file.originalname,
           name: 'Parse Error',
@@ -116,11 +115,12 @@ app.post('/api/upload-resumes', upload.array('resumes', 50), async (req, res) =>
           expectedPay: '',
           availabilityToJoin: '',
           error: error.message
-        });
+        };
       }
-    }
+    });
 
-    res.json({ resumes: parsedResumes });
+    const resumes = await Promise.all(parsingPromises);
+    res.json({ resumes });
   } catch (error) {
     console.error('Upload error:', error);
     res.status(500).json({ error: error.message });
@@ -149,23 +149,21 @@ app.post('/api/scan-folder', async (req, res) => {
       return ['.pdf', '.doc', '.docx'].includes(ext);
     });
 
-    const parsedResumes = [];
-
-    for (const file of resumeFiles) {
+    const parsingPromises = resumeFiles.map(async (file) => {
       try {
         const filePath = path.join(folderPath, file);
         const resumeData = await parseResume(filePath);
-        parsedResumes.push({
+        return {
           id: Date.now() + Math.random(),
           fileName: file,
           ...resumeData,
           currentCTC: '',
           expectedPay: '',
           availabilityToJoin: ''
-        });
+        };
       } catch (error) {
         console.error(`Error parsing ${file}:`, error);
-        parsedResumes.push({
+        return {
           id: Date.now() + Math.random(),
           fileName: file,
           name: 'Parse Error',
@@ -178,11 +176,12 @@ app.post('/api/scan-folder', async (req, res) => {
           expectedPay: '',
           availabilityToJoin: '',
           error: error.message
-        });
+        };
       }
-    }
+    });
 
-    res.json({ resumes: parsedResumes });
+    const resumes = await Promise.all(parsingPromises);
+    res.json({ resumes });
   } catch (error) {
     console.error('Scan folder error:', error);
     res.status(500).json({ error: error.message });
