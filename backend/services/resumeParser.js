@@ -22,12 +22,22 @@ export async function parseResume(filePath) {
             throw new Error('Unsupported file format');
         }
 
+        // Clean up text
+        const cleanText = text.replace(/\r/g, '\n').replace(/\n\s*\n/g, '\n');
+
         // Extract information from text
-        const extractedData = extractResumeData(text);
+        const extractedData = extractResumeData(cleanText);
         return extractedData;
     } catch (error) {
         console.error('Error parsing resume:', error);
-        throw error;
+        return {
+            name: 'Parse Error',
+            email: '',
+            contact: '',
+            place: '',
+            skills: '',
+            experience: ''
+        };
     }
 }
 
@@ -35,180 +45,147 @@ export async function parseResume(filePath) {
  * Extract structured data from resume text using regex patterns
  */
 function extractResumeData(text) {
-    // Clean up text
-    const cleanText = text.replace(/\s+/g, ' ').trim();
-
     return {
-        name: extractName(cleanText),
-        email: extractEmail(cleanText),
-        contact: extractPhone(cleanText),
-        place: extractLocation(cleanText),
-        skills: extractSkills(cleanText),
-        experience: extractExperience(cleanText)
+        name: extractName(text),
+        email: extractEmail(text),
+        contact: extractPhone(text),
+        place: extractLocation(text),
+        skills: extractSkills(text),
+        experience: extractExperience(text)
     };
 }
 
 /**
- * Extract name - typically first line or near top
+ * Extract name - improved version
  */
 function extractName(text) {
-    // Try to find name patterns
-    const lines = text.split(/\n+/).filter(line => line.trim().length > 0);
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
-    // First non-empty line is often the name
-    if (lines.length > 0) {
-        const firstLine = lines[0].trim();
-        // Check if it looks like a name (2-4 words, capitalized, no special chars)
-        if (/^[A-Z][a-z]+(\s+[A-Z][a-z]+){1,3}$/.test(firstLine)) {
-            return firstLine;
-        }
+    // Noise words that shouldn't be in a name
+    const noise = ['address', 'location', 'phone', 'email', 'mobile', 'contact', 'curriculum', 'vitae', 'resume', 'bio', 'summary'];
+
+    for (let i = 0; i < Math.min(lines.length, 10); i++) {
+        const line = lines[i];
+
+        // Skip lines that contain noise words
+        if (noise.some(word => line.toLowerCase().includes(word))) continue;
+
+        // Skip lines with @ (emails) or too many numbers
+        if (line.includes('@') || (line.match(/\d/g) || []).length > 4) continue;
+
+        // Pattern for a typical name: 2-3 words, capitalized
+        const nameMatch = line.match(/^([A-Z][a-z]+(?:\s+[A-Z](?:[a-z]+|\.))?\s+[A-Z][a-z]+)$/);
+        if (nameMatch) return nameMatch[1];
+
+        // Looser pattern: just 2-3 capitalized words
+        const looseMatch = line.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b/);
+        if (looseMatch && looseMatch[1].split(' ').length >= 2) return looseMatch[1];
     }
 
-    // Try to find "Name:" pattern
-    const nameMatch = text.match(/(?:Name|NAME)\s*:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})/i);
-    if (nameMatch) {
-        return nameMatch[1].trim();
-    }
-
-    // Return first capitalized words
-    const capitalizedMatch = text.match(/\b([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/);
-    return capitalizedMatch ? capitalizedMatch[1].trim() : 'Not Found';
+    return 'Not Found';
 }
 
 /**
  * Extract email address
  */
 function extractEmail(text) {
-    const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
+    const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+)/gi;
     const match = text.match(emailRegex);
-    return match ? match[0] : '';
+    return match ? match[0].toLowerCase() : '';
 }
 
 /**
  * Extract phone number
  */
 function extractPhone(text) {
-    // Indian phone patterns
-    const phonePatterns = [
-        /(?:\+91|91)?[\s-]?[6-9]\d{9}/,  // Indian mobile
-        /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/,  // US format
-        /\d{10}/  // 10 digit number
-    ];
-
-    for (const pattern of phonePatterns) {
-        const match = text.match(pattern);
-        if (match) {
-            return match[0].replace(/[\s-()]/g, '');
-        }
+    const phoneRegex = /(?:(?:\+91|91|0)[\s-]?)?([6-9]\d{9}|[6-9]\d{2}[\s-]\d{3}[\s-]\d{4}|\d{5}[\s-]\d{5})/g;
+    const matches = text.match(phoneRegex);
+    if (matches) {
+        // Return first valid looking 10-digit sequence
+        return matches[0].replace(/[\s-+]/g, '').slice(-10);
     }
-
     return '';
 }
 
 /**
- * Extract location/place
+ * Extract location
  */
 function extractLocation(text) {
-    // Common location patterns
-    const locationPatterns = [
-        /(?:Location|Address|City|Place)\s*:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:,\s*[A-Z][a-z]+)*)/i,
-        /\b(Mumbai|Delhi|Bangalore|Bengaluru|Hyderabad|Chennai|Kolkata|Pune|Ahmedabad|Jaipur|Lucknow|Kanpur|Nagpur|Indore|Thane|Bhopal|Visakhapatnam|Pimpri-Chinchwad|Patna|Vadodara|Ghaziabad|Ludhiana|Agra|Nashik|Faridabad|Meerut|Rajkot|Kalyan-Dombivali|Vasai-Virar|Varanasi|Srinagar|Aurangabad|Dhanbad|Amritsar|Navi Mumbai|Allahabad|Ranchi|Howrah|Coimbatore|Jabalpur|Gwalior|Vijayawada|Jodhpur|Madurai|Raipur|Kota)\b/i,
-        /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*([A-Z]{2}|[A-Z][a-z]+)\b/
-    ];
+    const cities = ['mumbai', 'delhi', 'bangalore', 'bengaluru', 'hyderabad', 'chennai', 'kolkata', 'pune', 'ahmedabad', 'jaipur', 'lucknow', 'chandigarh', 'gurgaon', 'gurugram', 'noida', 'pune', 'kochi', 'thiruvananthapuram', 'coimbatore', 'madurai', 'mysore', 'visakhapatnam', 'nagpur', 'indore', 'bhopal', 'patna', 'ranchi', 'bhubaneswar', 'guwahati'];
 
-    for (const pattern of locationPatterns) {
-        const match = text.match(pattern);
-        if (match) {
-            return match[1] ? match[1].trim() : match[0].trim();
+    const textLower = text.toLowerCase();
+    for (const city of cities) {
+        if (textLower.includes(city)) {
+            return city.charAt(0).toUpperCase() + city.slice(1);
         }
+    }
+
+    // Try to find "Location: X" pattern
+    const locMatch = text.match(/(?:Location|Address|Place|City)\s*:?\s*([A-Z][a-z]+)/i);
+    if (locMatch && !['road', 'street', 'lane'].includes(locMatch[1].toLowerCase())) {
+        return locMatch[1].trim();
     }
 
     return '';
 }
 
 /**
- * Extract skills
+ * Extract skills - Comprehensive list
  */
 function extractSkills(text) {
-    const skillsSection = text.match(/(?:Skills|SKILLS|Technical Skills|Core Competencies)\s*:?\s*([\s\S]*?)(?=\n\n|Experience|EXPERIENCE|Education|EDUCATION|$)/i);
-
-    if (skillsSection) {
-        const skillsText = skillsSection[1];
-        // Clean up and format skills
-        const skills = skillsText
-            .replace(/[•\-\*]/g, ',')
-            .split(/[,\n]/)
-            .map(s => s.trim())
-            .filter(s => s.length > 0 && s.length < 50)
-            .slice(0, 15)  // Limit to 15 skills
-            .join(', ');
-        return skills;
-    }
-
-    // Try to find common technical skills
-    const commonSkills = [
-        'JavaScript', 'Python', 'Java', 'C\\+\\+', 'React', 'Angular', 'Vue',
-        'Node\\.js', 'Express', 'Django', 'Flask', 'Spring', 'SQL', 'MongoDB',
-        'PostgreSQL', 'MySQL', 'AWS', 'Azure', 'Docker', 'Kubernetes',
-        'Git', 'HTML', 'CSS', 'TypeScript', 'PHP', 'Ruby', 'Go', 'Rust',
-        'Machine Learning', 'Data Science', 'AI', 'Deep Learning'
+    const skillKeywords = [
+        'Python', 'Java', 'JavaScript', 'TypeScript', 'C++', 'C#', 'PHP', 'Ruby', 'Swift', 'Go', 'Rust', 'Kotlin', 'SQL',
+        'React', 'Angular', 'Vue', 'Next.js', 'Node.js', 'Express', 'Django', 'Flask', 'Spring Boot', 'Laravel', 'ASP.NET',
+        'MongoDB', 'PostgreSQL', 'MySQL', 'Redis', 'Elasticsearch', 'Firebase', 'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes',
+        'HTML', 'CSS', 'Sass', 'Tailwind', 'Bootstrap', 'Redux', 'GraphQL', 'REST API', 'Microservices',
+        'Machine Learning', 'Deep Learning', 'NLP', 'Computer Vision', 'Data Science', 'Pandas', 'NumPy', 'Scikit-learn', 'TensorFlow', 'PyTorch',
+        'Git', 'CI/CD', 'Agile', 'Jira', 'Postman', 'Tableau', 'Power BI', 'Excel', 'Project Management'
     ];
 
     const foundSkills = [];
-    for (const skill of commonSkills) {
-        const regex = new RegExp(`\\b${skill}\\b`, 'i');
-        if (regex.test(text)) {
-            foundSkills.push(skill.replace(/\\/g, ''));
-        }
-    }
+    const textLower = text.toLowerCase();
 
-    return foundSkills.join(', ');
+    skillKeywords.forEach(skill => {
+        // Escape special chars like . or + in skill names
+        const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+        if (regex.test(text)) {
+            foundSkills.push(skill);
+        }
+    });
+
+    return foundSkills.slice(0, 15).join(', ');
 }
 
 /**
  * Extract years of experience
  */
 function extractExperience(text) {
-    // Look for experience patterns
-    const experiencePatterns = [
+    const expPatterns = [
         /(\d+)\+?\s*(?:years?|yrs?)(?:\s+of)?\s+(?:experience|exp)/i,
-        /(?:experience|exp)\s*:?\s*(\d+)\+?\s*(?:years?|yrs?)/i,
-        /(\d+)\s*-\s*(\d+)\s*(?:years?|yrs?)/i
+        /(?:total\s+)?(?:experience|exp)\s*:?\s*(\d+)\+?\s*(?:years?|yrs?)/i,
+        /(\d+(?:\.\d+)?)\s*(?:years?|yrs?)/i
     ];
 
-    for (const pattern of experiencePatterns) {
+    for (const pattern of expPatterns) {
         const match = text.match(pattern);
-        if (match) {
-            if (match[2]) {
-                // Range found
-                return `${match[1]}-${match[2]} years`;
-            }
-            return `${match[1]} years`;
-        }
+        if (match) return `${match[1]} years`;
     }
 
-    // Try to count work experiences
-    const experienceSection = text.match(/(?:Experience|EXPERIENCE|Work Experience|WORK EXPERIENCE)\s*:?\s*([\s\S]*?)(?=Education|EDUCATION|Skills|SKILLS|$)/i);
-
-    if (experienceSection) {
-        // Count date ranges in experience section
-        const dateRanges = experienceSection[1].match(/\d{4}\s*-\s*(?:\d{4}|Present|Current)/gi);
-        if (dateRanges && dateRanges.length > 0) {
-            // Calculate total years from date ranges
-            let totalYears = 0;
-            dateRanges.forEach(range => {
-                const years = range.match(/\d{4}/g);
-                if (years && years.length >= 1) {
-                    const startYear = parseInt(years[0]);
-                    const endYear = years[1] ? parseInt(years[1]) : new Date().getFullYear();
-                    totalYears += (endYear - startYear);
-                }
-            });
-            if (totalYears > 0) {
-                return `${totalYears} years`;
+    // Try counting year ranges e.g. 2018 - 2022
+    const yearRanges = text.match(/(?:20|19)\d{2}\s*-\s*(?:20\d{2}|present|current)/gi);
+    if (yearRanges) {
+        let total = 0;
+        yearRanges.forEach(range => {
+            const parts = range.match(/\d{4}|present|current/gi);
+            if (parts.length >= 2) {
+                const start = parseInt(parts[0]);
+                const end = parts[1].match(/present|current/i) ? new Date().getFullYear() : parseInt(parts[1]);
+                total += Math.max(0, end - start);
             }
-        }
+        });
+        if (total > 0) return `${total} years`;
     }
 
-    return '';
+    return 'Fresher';
 }
